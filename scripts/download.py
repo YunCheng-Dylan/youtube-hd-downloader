@@ -77,13 +77,25 @@ def log(msg):
 
 
 def clean_env():
-    """Return a copy of os.environ with NODE_OPTIONS removed (the critical fix)."""
+    """Return a copy of os.environ with sandbox shims removed from the child.
+
+    Two WorkBuddy-sandbox variables break yt-dlp downloads and MUST be cleared:
+      1. NODE_OPTIONS  - injects a node sandbox shim that makes the EJS/n-challenge
+         solver fail with "Access to this API has been restricted", which hides all
+         720p/1080p formats (only 360p survives).
+      2. CODEBUDDY_SAFE_DELETE_ENABLED - installs a sitecustomize.py that routes
+         os.remove to the Recycle Bin and, after 50 deletes in a turn, demands a
+         bulk-confirm that returns rc=1. yt-dlp removes its own .f137/.f140 temp
+         files after each merge, so every merge would falsely report failure.
+    """
     env = os.environ.copy()
     removed = env.pop("NODE_OPTIONS", None)
     if removed:
         log("NODE_OPTIONS cleared from child environment (was: %s)" % removed[:120])
-    # Also clear it from the current process so any implicit subprocess is clean.
+    env["CODEBUDDY_SAFE_DELETE_ENABLED"] = "0"
+    # Also clear them from the current process so any implicit subprocess is clean.
     os.environ.pop("NODE_OPTIONS", None)
+    os.environ["CODEBUDDY_SAFE_DELETE_ENABLED"] = "0"
     return env
 
 
