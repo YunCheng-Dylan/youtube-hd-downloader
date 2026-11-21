@@ -8,6 +8,7 @@ Features:
   - Auto-discovers ffmpeg (imageio_ffmpeg / known path / PATH).
   - Auto-starts the bgutil PO Token server on port 4416 if it is not running.
   - Expands playlists into (index, id, url) entries.
+  - Optional --start/--end to download only a range of playlist episodes.
   - Downloads episode by episode: 1080p -> 720p -> best, with retries on 403 /
     "Requested format is not available" / missing-URL errors.
   - Skips already-downloaded files (size based).
@@ -15,6 +16,7 @@ Features:
 
 Usage:
   python download.py URL --out DIR [--quality 1080|720|best] [--whole] [--retries 5]
+                         [--start N] [--end N]
 """
 
 import argparse
@@ -333,6 +335,10 @@ def main():
                         help="Treat URL as a whole playlist (numbered filenames)")
     parser.add_argument("--retries", type=int, default=5, help="Retries per format")
     parser.add_argument("--pot-port", type=int, default=4416)
+    parser.add_argument("--start", type=int, default=None,
+                        help="Only download playlist episodes with index >= N")
+    parser.add_argument("--end", type=int, default=None,
+                        help="Only download playlist episodes with index <= N")
     args = parser.parse_args()
 
     env = clean_env()  # critical: drop NODE_OPTIONS
@@ -354,6 +360,22 @@ def main():
 
     os.makedirs(args.out, exist_ok=True)
     entries = parse_playlist(args.url, env, python)
+
+    # Filter by playlist index range if requested.
+    if args.start is not None or args.end is not None:
+        lo = args.start if args.start is not None else 0
+        hi = args.end if args.end is not None else 10 ** 9
+        filtered = []
+        for e in entries:
+            try:
+                idx = int(e["index"])
+            except (TypeError, ValueError):
+                idx = 0
+            if lo <= idx <= hi:
+                filtered.append(e)
+        log("Range filter %s-%s: %d -> %d video(s)" %
+            (lo, hi, len(entries), len(filtered)))
+        entries = filtered
 
     stats = {"ok": 0, "skip": 0, "fail": 0}
     resolutions = []
