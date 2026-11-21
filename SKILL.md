@@ -134,9 +134,13 @@ env -u NODE_OPTIONS "$PY" scripts/download.py "<视频URL>" --out "<输出目录
 
 # 整部剧，1080p 优先，失败重试 5 次并回退 720p
 env -u NODE_OPTIONS "$PY" scripts/download.py "<播放列表URL>" --out "<输出目录>" --quality 1080 --whole --retries 5
+
+# 只下播放列表的一段，例如第 33 集到第 136 集
+env -u NODE_OPTIONS "$PY" scripts/download.py "<播放列表URL>" --out "<输出目录>" --whole --start 33 --end 136
 ```
 
-`download.py` 参数：`URL 输出目录 --quality {1080,720,best} --whole --retries N`。
+`download.py` 参数：`URL 输出目录 --quality {1080,720,best} --whole --retries N --start N --end N`。
+`--start` / `--end` 按播放列表序号过滤（含端点），只下其中一段。
 脚本本身也会再次清除 NODE_OPTIONS，所以即使外层忘了 `env -u` 也能工作。
 
 ## 格式选择策略
