@@ -39,19 +39,23 @@ yt-dlp 报 `Some formats have been skipped as they are missing a URL`。要拿�
    **所有高清格式消失**。**运行 yt-dlp 前必须 `env -u NODE_OPTIONS` 清除该变量**
    （Windows / Python subprocess 用删掉 NODE_OPTIONS 的 env 传入）。
 4. **播放器客户端选择（决定能否稳定下高清）**：
-   - **首选 `web_embedded` + 登录 cookie**：它返回直连 DASH URL（itag 137/136/140），
-     不走 SABR 隐藏 URL，实测能完整下载 1080p（360 MB / 49 秒无 403）。
+   - **首选 `web_embedded`**：它返回直连 DASH URL（itag 137/136/140），
+     不走 SABR 隐藏 URL，实测**不带 cookie** 也能完整下载 1080p（360 MB / 49 秒无 403）。
      `download.py` 已默认使用 `web_embedded`。
-   - `mweb` 是备用：能拿到格式，但 SABR 签名 URL 常在几 MB 后 403（大批量下载时尤甚）。
+   - **自动兜底 `mweb`**：若 `web_embedded` 也报 "formats have been skipped as they
+     are missing a URL"（SABR-only），脚本会自动用 `mweb` + PO Token 再试一轮。
    - `web` / `web_safari` 通常只剩 360p；`android_vr` 对 made-for-kids 视频不可用。
 5. **多客户端 + 重试**：即使配置全对，首次请求仍可能报 `Requested format is not
    available` 或 403，**必须重试**（实测平均 2-3 次，最多 5 次）。
 6. **音视频分离**：itag 137(1080p) / 136(720p) 是纯视频，需与音频 itag 140 用 ffmpeg 合并。
 
-## Cookie（遇到 403 / 账号配额时启用）
+## Cookie（可选，非必需）
 
-用户如果提供 YouTube cookie（`HSID=...; SSID=...; ...` 形式），按下面转成 Netscape
-格式再传给脚本。**不要把 cookie 内容打印到日志或回复里**。
+`web_embedded` 通常**不需要登录 cookie** 就能拿到 1080p/720p。用户如果提供了
+YouTube cookie（`HSID=...; SSID=...; ...` 形式），按下面转成 Netscape 格式再传给脚本。
+**不要把 cookie 内容打印到日志或回复里**。如果 cookie 文件出现
+`PermissionError`（yt-dlp 会尝试回写该文件），直接去掉 `--cookies` 即可，
+不要因此中断下载队列。
 
 ```python
 # 输入是用户给的 "a=1; b=2; ..." 字符串，输出 yt-dlp 可用的 cookie 文件
@@ -70,7 +74,7 @@ env -u NODE_OPTIONS "$PY" scripts/download.py "<URL>" --out "<DIR>" \
   --quality 1080 --whole --cookies "youtube_cookies.txt" --client web_embedded
 ```
 
-经验：仅换 cookie、仍用 `mweb` 时 403 依旧；**必须同时换成 `web_embedded`**。
+经验：仅换 cookie、仍用 `mweb` 时 403 依旧；决定性因素是 `web_embedded`，cookie 只是可选补充。
 
 ## 环境检查（每次开始下载前先跑）
 
@@ -175,7 +179,7 @@ env -u NODE_OPTIONS "$PY" scripts/download.py "<播放列表URL>" --out "<输出
 `download.py` 参数：`URL 输出目录 --quality {1080,720,best} --whole --retries N
 --start N --end N --cookies FILE --client web_embedded|mweb|...`。
 `--start` / `--end` 按播放列表序号过滤（含端点），只下其中一段。
-默认客户端是 `web_embedded`；传 `--client mweb` 可切回旧模式。
+默认客户端是 `web_embedded`；它失败时脚本会自动换 `mweb` 重试。传 `--client mweb` 可强制只用旧模式。
 脚本本身也会再次清除 NODE_OPTIONS，所以即使外层忘了 `env -u` 也能工作。
 
 ## 格式选择策略
@@ -215,7 +219,9 @@ env -u NODE_OPTIONS "$PY" scripts/download.py "<播放列表URL>" --out "<输出
 | `Access to this API has been restricted. Use --allow-fs-read` | NODE_OPTIONS 注入了 node shim | 同上，必须清除 NODE_OPTIONS |
 | `Some formats ... missing a URL` / SABR-only | 缺 PO Token | 确认 PO 服务在 4416 端口运行，pip 插件已装 |
 | `Requested format is not available` | 客户端/PO Token 绑定问题（间歇性） | 重试，最多 5 次；1080p 不行会回退 720p |
-| HTTP 403（下到几 MB 就断） | `mweb` 的 SABR 签名 URL 被限流 | **改用 `web_embedded` + 登录 cookie**；仅加 cookie 不够 |
+| HTTP 403（下到几 MB 就断） | `mweb` 的 SABR 签名 URL 被限流 | 用默认的 `web_embedded`；仅加 cookie 不够 |
+| `web_embedded` 也报缺失 URL | 部分视频触发 SABR-only | 脚本自动兜底 `mweb` + PO Token，无需手工干预 |
+| cookie 文件 `PermissionError` | yt-dlp 回写 cookie 文件被系统拒绝 | 去掉 `--cookies`，`web_embedded` 不带 cookie 也能下高清 |
 | `Unable to download JS challenge` / EJS 报错 | 缺 yt-dlp-ejs 或 JS 运行时 | 装 `yt-dlp[default]`，加 `--js-runtimes node` |
 | made-for-kids 视频下载失败 | android_vr 等客户端不可用 | 用 `web_embedded`（首选）或 `mweb` |
 | 合并成功但中间文件残留 / rc=1 | WorkBuddy safe-delete 拦截 | 设置 `CODEBUDDY_SAFE_DELETE_ENABLED=0` |
