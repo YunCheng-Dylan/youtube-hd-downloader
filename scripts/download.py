@@ -87,9 +87,17 @@ def cookie_args():
     return []
 
 
-def client_args():
+def client_args(client=None):
     """yt-dlp arguments selecting the player client."""
-    return ["--extractor-args", "youtube:player_client=%s" % PLAYER_CLIENT]
+    return ["--extractor-args", "youtube:player_client=%s" % (client or PLAYER_CLIENT)]
+
+
+def clients_to_try():
+    """Primary client first; mweb is the fallback when SABR hides HD URLs."""
+    clients = [PLAYER_CLIENT]
+    if "mweb" not in clients:
+        clients.append("mweb")
+    return clients
 
 
 def log(msg):
@@ -321,40 +329,42 @@ def download_one(entry, base, ffmpeg, quality, retries, env, python, pot_port, r
         res = get_resolution(ffmpeg, base + ".mp4")
         return "skip", res
 
-    for fmt in format_candidates(quality):
-        for attempt in range(1, retries + 1):
-            log("  FORMAT %s | attempt %d/%d | %s" % (fmt, attempt, retries, entry["id"]))
-            args = [
-                "--ffmpeg-location", ffmpeg,
-                "--js-runtimes", "node",
-                "-f", fmt,
-                "--merge-output-format", "mp4",
-                "--no-part",
-                "--no-playlist",
-                # Do NOT resume from a stale .f137/.f140 fragment left by a
-                # previous failed attempt: its signed URL is expired, which
-                # makes every retry fail with 403 "Resuming download at byte N".
-                "--force-overwrites",
-                "-o", base + ".%(ext)s",
-            ] + client_args() + cookie_args() + [entry["url"]]
-            rc, out = run_yt_dlp(args, env, python)
-            if rc == 0 and file_ready(base):
-                res = get_resolution(ffmpeg, base + ".mp4")
-                log("  OK -> %s (resolution=%s)" %
-                    (os.path.basename(base), "%dx%d" % res if res else "?"))
-                return "ok", res
+    for client in clients_to_try():
+        for fmt in format_candidates(quality):
+            for attempt in range(1, retries + 1):
+                log("  CLIENT %s | FORMAT %s | attempt %d/%d | %s" %
+                    (client, fmt, attempt, retries, entry["id"]))
+                args = [
+                    "--ffmpeg-location", ffmpeg,
+                    "--js-runtimes", "node",
+                    "-f", fmt,
+                    "--merge-output-format", "mp4",
+                    "--no-part",
+                    "--no-playlist",
+                    # Do NOT resume from a stale .f137/.f140 fragment left by a
+                    # previous failed attempt: its signed URL is expired, which
+                    # makes every retry fail with 403 "Resuming download at byte N".
+                    "--force-overwrites",
+                    "-o", base + ".%(ext)s",
+                ] + client_args(client) + cookie_args() + [entry["url"]]
+                rc, out = run_yt_dlp(args, env, python)
+                if rc == 0 and file_ready(base):
+                    res = get_resolution(ffmpeg, base + ".mp4")
+                    log("  OK -> %s (resolution=%s)" %
+                        (os.path.basename(base), "%dx%d" % res if res else "?"))
+                    return "ok", res
 
-            last_lines = " | ".join(out.strip().splitlines()[-3:])[:300]
-            log("  FAIL (rc=%d): %s" % (rc, last_lines))
-            if not should_retry(out):
-                log("  Permanent error, stop retrying this format.")
-                break
-            if "403" in out or "format is not available" in out.lower():
-                # PO Token binding/timeouts cause most 403s; refresh the service.
-                restart_cb()
-            if attempt < retries:
-                time.sleep(min(attempt, 3))
-        log("  Format %s exhausted, trying next format..." % fmt)
+                last_lines = " | ".join(out.strip().splitlines()[-3:])[:300]
+                log("  FAIL (rc=%d): %s" % (rc, last_lines))
+                if not should_retry(out):
+                    log("  Permanent error, stop retrying this format.")
+                    break
+                if "403" in out or "format is not available" in out.lower():
+                    # PO Token binding/timeouts cause most 403s; refresh the service.
+                    restart_cb()
+                if attempt < retries:
+                    time.sleep(min(attempt, 3))
+            log("  Format %s exhausted with client %s, trying next..." % (fmt, client))
     return "fail", None
 
 
