@@ -79,9 +79,9 @@ PO Token server。加 `--upgrade` 可升级到最新版依赖。
 3. **清除 NODE_OPTIONS**：WorkBuddy 在 `NODE_OPTIONS` 注入 sandbox shim，会让 node
    求解挑战时报 `Access to this API has been restricted`，导致高清格式全部消失。
    脚本在运行 yt-dlp 前强制从子进程环境删除该变量——**这是本环境最关键的坑**。
-4. **客户端选择**：默认 `web_embedded`，它返回直连 DASH URL，实测 1080p
-   （360 MB）能完整下载；`mweb` 虽能解析格式，但签名 URL 常在几 MB 后 403，
-   大批量下载时尤甚。配合登录 cookie 效果最好。
+4. **客户端选择**：默认 `web_embedded`，不需要登录 cookie 就能拿到直连 DASH URL，
+   实测 1080p（360 MB）完整下载；万一它也遇到 SABR-only，脚本会自动兜底 `mweb`。
+   `mweb` 的签名 URL 常在几 MB 后 403，大批量下载时尤甚。
 5. **重试与回退**：`Requested format is not available` / 403 会重试，1080p
    耗尽后自动回退 720p。
 6. **音视频合并**：137/136 是纯视频，与音频 140 用 ffmpeg 合并成 MP4；
