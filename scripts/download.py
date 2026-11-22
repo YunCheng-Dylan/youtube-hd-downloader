@@ -11,12 +11,16 @@ Features:
   - Optional --start/--end to download only a range of playlist episodes.
   - Downloads episode by episode: 1080p -> 720p -> best, with retries on 403 /
     "Requested format is not available" / missing-URL errors.
+  - Optional --cookies FILE (Netscape format) to use a logged-in YouTube session.
+  - Uses the web_embedded player client by default: unlike mweb/SABR it exposes
+    direct 1080p/720p DASH URLs and avoids mid-download HTTP 403 throttling.
   - Skips already-downloaded files (size based).
   - Verifies real resolution with ffmpeg and prints a summary.
 
 Usage:
   python download.py URL --out DIR [--quality 1080|720|best] [--whole] [--retries 5]
-                         [--start N] [--end N]
+                         [--start N] [--end N] [--cookies FILE]
+                         [--client web_embedded|mweb|web|...]
 """
 
 import argparse
@@ -70,6 +74,22 @@ FATAL_MARKERS = (
 )
 
 MIN_OK_BYTES = 1024 * 1024  # 1 MB
+
+# Set by CLI options in main(); injected into every yt-dlp invocation.
+COOKIE_FILE = None
+PLAYER_CLIENT = "web_embedded"
+
+
+def cookie_args():
+    """yt-dlp arguments for the optional Netscape cookie file."""
+    if COOKIE_FILE and os.path.isfile(COOKIE_FILE):
+        return ["--cookies", COOKIE_FILE]
+    return []
+
+
+def client_args():
+    """yt-dlp arguments selecting the player client."""
+    return ["--extractor-args", "youtube:player_client=%s" % PLAYER_CLIENT]
 
 
 def log(msg):
@@ -202,10 +222,8 @@ def parse_playlist(url, env, python):
     """Return a list of dicts: {index, id, url, title}. Single videos yield one item."""
     args = [
         "--flat-playlist", "--dump-json",
-        "--extractor-args", "youtube:player_client=mweb",
         "--no-warnings",
-        url,
-    ]
+    ] + client_args() + cookie_args() + [url]
     rc, out = run_yt_dlp(args, env, python)
     entries = []
     for line in out.splitlines():
@@ -309,14 +327,16 @@ def download_one(entry, base, ffmpeg, quality, retries, env, python, pot_port, r
             args = [
                 "--ffmpeg-location", ffmpeg,
                 "--js-runtimes", "node",
-                "--extractor-args", "youtube:player_client=mweb",
                 "-f", fmt,
                 "--merge-output-format", "mp4",
                 "--no-part",
                 "--no-playlist",
+                # Do NOT resume from a stale .f137/.f140 fragment left by a
+                # previous failed attempt: its signed URL is expired, which
+                # makes every retry fail with 403 "Resuming download at byte N".
+                "--force-overwrites",
                 "-o", base + ".%(ext)s",
-                entry["url"],
-            ]
+            ] + client_args() + cookie_args() + [entry["url"]]
             rc, out = run_yt_dlp(args, env, python)
             if rc == 0 and file_ready(base):
                 res = get_resolution(ffmpeg, base + ".mp4")
@@ -351,7 +371,21 @@ def main():
                         help="Only download playlist episodes with index >= N")
     parser.add_argument("--end", type=int, default=None,
                         help="Only download playlist episodes with index <= N")
+    parser.add_argument("--cookies", default=None,
+                        help="Netscape-format cookie file for a logged-in YouTube session")
+    parser.add_argument("--client", default="web_embedded",
+                        help="YouTube player client (default: web_embedded, avoids SABR 403)")
     args = parser.parse_args()
+
+    global COOKIE_FILE, PLAYER_CLIENT
+    COOKIE_FILE = args.cookies
+    PLAYER_CLIENT = args.client
+    log("Player client: %s" % PLAYER_CLIENT)
+    if COOKIE_FILE:
+        if os.path.isfile(COOKIE_FILE):
+            log("Using YouTube cookies from %s" % COOKIE_FILE)
+        else:
+            log("WARNING: cookie file not found: %s" % COOKIE_FILE)
 
     env = clean_env()  # critical: drop NODE_OPTIONS
     python = find_python()
